@@ -1,27 +1,13 @@
-import java.util.concurrent.{Executors, TimeUnit}
-
 import TapirEndpoints.Margin.Margin
-import cats.data.NonEmptyList
-import cats.effect.{ContextShift, ExitCode, IO, IOApp, Resource, Sync, SyncIO, Timer}
+import cats.effect.{ContextShift, ExitCode, IO, IOApp, Sync, Timer}
 import fs2.Stream
 import org.http4s.dsl.Http4sDsl
 import org.http4s.server.Router
 import org.http4s.server.blaze.BlazeServerBuilder
+import sttp.tapir.json.circe.TapirJsonCirce
+import sttp.tapir.{Schema, SchemaType, Validator}
 
-import scala.concurrent.ExecutionContext
-
-object Server extends IOApp.WithContext {
-  private val threadsMultiplier = 2
-  override protected def executionContextResource: Resource[SyncIO, ExecutionContext] = {
-    Resource
-      .make(SyncIO(Executors.newFixedThreadPool(Runtime.getRuntime.availableProcessors() * threadsMultiplier)))(pool =>
-        SyncIO {
-          pool.shutdown()
-          pool.awaitTermination(10, TimeUnit.SECONDS)
-        }
-      )
-      .map(ExecutionContext.fromExecutorService)
-  }
+object Server extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] = {
     implicitly[Timer[IO]]
@@ -68,35 +54,61 @@ class HelloEndpoints[F[_]: Sync]() extends Http4sDsl[F] {
   }
 }
 
-object TapirEndpoints {
-  import sttp.tapir._
-  import sttp.tapir.json.circe._
-  import io.circe.generic.auto._
+object TapirEndpoints extends TapirJsonCirce{
   import io.circe._
+  import io.circe.generic.auto._
+  import sttp.tapir._
+
   implicit val enumDecoder: Decoder[Margin.Value] = Decoder.decodeEnumeration(Margin)
   implicit val enumEncoder: Encoder[Margin.Value] = Encoder.encodeEnumeration(Margin)
-
   implicit val schemaForEnum: Schema[Margin.Value] = Schema(SchemaType.SString)
-  implicit def validatorForEnum: Validator[Margin.Value] = Validator.`enum`(Margin.values.toList, v => Option(v))
+  implicit def validatorForEnum: Validator[Margin.Value] = Validator.`enum`(Margin.values.toList, v=> Option(v))
+
 
   type Limit = Int
   type AuthToken = String
 
   object Margin extends Enumeration {
     type Margin = Value
-    val TOP, BOTTOM, LEFT, RIGHT = Value
+    val TOP, BOTTOM, LEFT = Value
   }
-  case class MoreNestedClass(y: Set[Margin])
-  case class NestedClass(x: Set[Margin.Value], y: MoreNestedClass)
-  case class BooksFromYear(genre: String, year: Int)
-  case class Book(title: String, margin: Margin, x: NestedClass)
 
-  def booksListing: Endpoint[(BooksFromYear, Limit, AuthToken), String, List[Book], Nothing] =
+  final case class BooksFromYear(genre: String, year: Int)
+
+  case class MoreNestedClass(y: Set[Margin])
+  case class NestedClass(x: Set[Margin], y: MoreNestedClass)
+  case class Working(title: String, margin: Margin, x: NestedClass)
+  case class NotWorking(title: String, margin: Margin, x: Set[NestedClass])
+
+  def compilesAlways: Endpoint[(BooksFromYear, Limit, AuthToken), String, Working, Nothing] = {
     endpoint
       .get
       .in(("books" / path[String]("genre") / path[Int]("year")).mapTo(BooksFromYear))
       .in(query[Limit]("limit").description("Maximum number of books to retrieve"))
       .in(header[AuthToken]("X-Auth-Token"))
       .errorOut(stringBody)
-      .out(jsonBody[List[Book]])
+      .out(jsonBody[Working])
+  }
+
+  def compilesOnlyInSomeConfigurationsDescribedInBuildsbt: Endpoint[(BooksFromYear, Limit, AuthToken), String, NotWorking, Nothing] = {
+    endpoint
+      .get
+      .in(("books" / path[String]("genre") / path[Int]("year")).mapTo(BooksFromYear))
+      .in(query[Limit]("limit").description("Maximum number of books to retrieve"))
+      .in(header[AuthToken]("X-Auth-Token"))
+      .errorOut(stringBody)
+      .out(jsonBody[NotWorking])
+  }
+}
+
+object models {
+  trait EnumHelper { e: Enumeration =>
+    import io.circe._
+
+    implicit val enumDecoder: Decoder[e.Value] = Decoder.decodeEnumeration(e)
+    implicit val enumEncoder: Encoder[e.Value] = Encoder.encodeEnumeration(e)
+
+    implicit val schemaForEnum: Schema[e.Value] = Schema(SchemaType.SString)
+    implicit def validatorForEnum: Validator[e.Value] = Validator.`enum`(e.values.toList, v => Option(v))
+  }
 }

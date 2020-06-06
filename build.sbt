@@ -2,12 +2,19 @@ name := "tapir-test"
 
 version := "0.1"
 
-scalaVersion := "2.13.2"
+scalaVersion := "2.12.8"
+/* Compiles on 2.13.2 with circe 0.13.0,
+* doesnt compile on 2.12.8 with circe 0.13.0, jdk8 1.8.0_241
+* doesnt compile on 2.12.8 with circe 0.12.3, jdk8 1.8.0_241
+* doesnt compile on 2.12.8 with circe 0.11.2, jdk8 1.8.0_241
+* */
+
+
 
 val http4sVersion = "0.21.3"
 val tapirVersion = "0.15.3"
 val catsVersions = "2.1.1"
-val circeVersion = "0.13.0"
+val circeVersion = "0.12.3"
 
 resolvers += Resolver.sonatypeRepo("snapshots")
 
